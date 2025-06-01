@@ -1,0 +1,9 @@
+streamlit
+googlemaps
+google-generativeai
+requests
+SpeechRecognition
+gTTS
+deep-translator
+plotly
+pandas
