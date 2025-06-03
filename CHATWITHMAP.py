@@ -48,8 +48,12 @@ languages = {'afrikaans': 'af', 'albanian': 'sq', 'amharic': 'am', 'arabic': 'ar
 
 # Function to translate text
 def translate_text(text, target_language):
-    translator = GoogleTranslator(source='auto', target=target_language)
-    return translator.translate(text)
+    try:
+        translator = GoogleTranslator(source='auto', target=target_language)
+        return translator.translate(text)
+    except Exception as e:
+        # Fallback to original text if translation fails
+        return text
 
 # Function to perform speech recognition
 def speech_to_text():
@@ -71,22 +75,34 @@ def speech_to_text():
 
 # Function to fetch places from Google Maps Places API
 def fetch_places(location, radius, query):
-    places_result = gmaps.places_nearby(location, radius=radius, keyword=query)
-    return places_result
+    try:
+        places_result = gmaps.places_nearby(location, radius=radius, keyword=query)
+        return places_result
+    except Exception as e:
+        st.error(f"Error fetching places: {str(e)}")
+        return {'results': []}
 
 # Function to fetch place details
 def fetch_place_details(place_id):
-    place_details = gmaps.place(place_id=place_id, fields=['name', 'geometry', 'rating', 'reviews', 'formatted_address', 'formatted_phone_number', 'photo', 'type'])
-    return place_details
+    try:
+        place_details = gmaps.place(place_id=place_id, fields=['name', 'geometry', 'rating', 'reviews', 'formatted_address', 'formatted_phone_number', 'photo', 'type'])
+        return place_details
+    except Exception as e:
+        st.error(f"Error fetching place details: {str(e)}")
+        return {'result': {}}
 
 # Function to get latitude and longitude from Google Maps Geocoding API
 def get_lat_lon_from_location(location_name):
-    geocode_result = gmaps.geocode(location_name)
-    if geocode_result:
-        lat = geocode_result[0]['geometry']['location']['lat']
-        lon = geocode_result[0]['geometry']['location']['lng']
-        return (lat, lon)
-    else:
+    try:
+        geocode_result = gmaps.geocode(location_name)
+        if geocode_result:
+            lat = geocode_result[0]['geometry']['location']['lat']
+            lon = geocode_result[0]['geometry']['location']['lng']
+            return (lat, lon)
+        else:
+            return None
+    except Exception as e:
+        st.error(f"Error geocoding location: {str(e)}")
         return None
 
 # Function to get photo reference URL
@@ -95,42 +111,46 @@ def get_photo_url(photo_reference):
 
 # Function to parse user input using Gemini
 def parse_user_input(user_input, last_location=None):
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    prompt = f"""
-    Parse the following user input and extract the location and place types:
-    User input: "{user_input}"
-    Last known location: "{last_location}"
-    
-    Return the result in the following format:
-    Location: [extracted location]
-    Place Types: [comma-separated list of extracted place types]
+    try:
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        prompt = f"""
+        Parse the following user input and extract the location and place types:
+        User input: "{user_input}"
+        Last known location: "{last_location}"
+        
+        Return the result in the following format:
+        Location: [extracted location]
+        Place Types: [comma-separated list of extracted place types]
 
-    If specific place types are not mentioned, default to "restaurant".
-    Valid place types are: restaurant, hospital, shop, petrol pump, atm, pharmacy, clothing, supermarket, college, school, bus station, railway station, metro station, airport, beach, park, garden, temple, church, mosque, pub, tourist spot.
-    
-    Please correct any spelling mistakes or interpret variations.
-    Be flexible in understanding the user's intent, even if they use non-standard terms or make spelling errors.
-    
-    If no location is specified in the user input, use the last known location.
-    """
-    
-    response = model.generate_content(prompt)
-    parsed_text = response.text
-    
-    location = ""
-    place_types = ["restaurant"]  # Default to restaurant if not specified
-    
-    for line in parsed_text.split('\n'):
-        if line.startswith("Location:"):
-            location = line.split(":")[1].strip()
-        elif line.startswith("Place Types:"):
-            place_types = [pt.strip().lower() for pt in line.split(":")[1].strip().split(",")]
-    
-    # If no location was extracted, use the last known location
-    if not location and last_location:
-        location = last_location
-    
-    return location, place_types
+        If specific place types are not mentioned, default to "restaurant".
+        Valid place types are: restaurant, hospital, shop, petrol pump, atm, pharmacy, clothing, supermarket, college, school, bus station, railway station, metro station, airport, beach, park, garden, temple, church, mosque, pub, tourist spot.
+        
+        Please correct any spelling mistakes or interpret variations.
+        Be flexible in understanding the user's intent, even if they use non-standard terms or make spelling errors.
+        
+        If no location is specified in the user input, use the last known location.
+        """
+        
+        response = model.generate_content(prompt)
+        parsed_text = response.text
+        
+        location = ""
+        place_types = ["restaurant"]  # Default to restaurant if not specified
+        
+        for line in parsed_text.split('\n'):
+            if line.startswith("Location:"):
+                location = line.split(":")[1].strip()
+            elif line.startswith("Place Types:"):
+                place_types = [pt.strip().lower() for pt in line.split(":")[1].strip().split(",")]
+        
+        # If no location was extracted, use the last known location
+        if not location and last_location:
+            location = last_location
+        
+        return location, place_types
+    except Exception as e:
+        st.error(f"Error parsing user input: {str(e)}")
+        return "New York", ["restaurant"]  # Default fallback
 
 # Function to summarize reviews
 def summarize_reviews(reviews, place_type, max_words=50):
@@ -139,24 +159,25 @@ def summarize_reviews(reviews, place_type, max_words=50):
     
     all_text = " ".join([review['text'] for review in reviews])
     
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    summary_prompt = f"""
-    Summarize the following {place_type} reviews in about {max_words} words. 
-    Highlight the main points, both positive and negative, mentioned by multiple reviewers.
-    Focus on aspects relevant to this type of place.
-    
-    Provide a concise summary without using headers like "Positive:" or "Negative:".
-    Instead, use phrases like "Positives include..." and "However, some negatives mentioned are...".
-    
-    If there are no relevant reviews or not enough information to provide a meaningful summary, 
-    respond with 'No reviews available.'
-
-    Reviews:
-    {all_text}
-    
-    Summary:
-    """
     try:
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        summary_prompt = f"""
+        Summarize the following {place_type} reviews in about {max_words} words. 
+        Highlight the main points, both positive and negative, mentioned by multiple reviewers.
+        Focus on aspects relevant to this type of place.
+        
+        Provide a concise summary without using headers like "Positive:" or "Negative:".
+        Instead, use phrases like "Positives include..." and "However, some negatives mentioned are...".
+        
+        If there are no relevant reviews or not enough information to provide a meaningful summary, 
+        respond with 'No reviews available.'
+
+        Reviews:
+        {all_text}
+        
+        Summary:
+        """
+        
         summary_response = model.generate_content(summary_prompt)
         summary = summary_response.text.strip()
         check_prompt = f"""
@@ -174,51 +195,57 @@ def summarize_reviews(reviews, place_type, max_words=50):
         else:
             return summary 
     except Exception as e:
-            return "No reviews available."
+        return "No reviews available."
 
 # Function to suggest related places or activities
 def suggest_related_places(place_type, location):
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    prompt = f"""
-    Given a user is interested in {place_type}s in {location}, suggest 5 related places or activities they might also be interested in.
-    Consider the following:
-    1. Complementary activities or places
-    2. Nearby attractions or points of interest
-    3. Time of day appropriate suggestions
-    4. Local specialties or unique experiences
-    5. Popular combinations or pairings
-
-    Format the response as a bulleted list with brief explanations.
-    """
-    
     try:
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        prompt = f"""
+        Given a user is interested in {place_type}s in {location}, suggest 5 related places or activities they might also be interested in.
+        Consider the following:
+        1. Complementary activities or places
+        2. Nearby attractions or points of interest
+        3. Time of day appropriate suggestions
+        4. Local specialties or unique experiences
+        5. Popular combinations or pairings
+
+        Format the response as a bulleted list with brief explanations.
+        """
+        
         response = model.generate_content(prompt)
         suggestions = response.text.strip()
         return suggestions
     except Exception as e:
-        st.error(f"Error in generating suggestions: {str(e)}")
         return "Unable to generate suggestions at this time."
 
 # Function to convert text to speech and return base64 encoded audio
 def text_to_speech_base64(text, lang='en'):
-    tts = gTTS(text=text, lang=lang)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
-        tts.save(temp_audio.name)
-        with open(temp_audio.name, "rb") as audio_file:
-            return base64.b64encode(audio_file.read()).decode()
+    try:
+        tts = gTTS(text=text, lang=lang)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
+            tts.save(temp_audio.name)
+            with open(temp_audio.name, "rb") as audio_file:
+                return base64.b64encode(audio_file.read()).decode()
+    except Exception as e:
+        return ""
 
 # Function to get weather data from OpenWeatherMap API
 def get_weather_data(lat, lon):
-    url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OPENWEATHERMAP_API_KEY}&units=metric"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        weather_text = f"The weather in {data['name']} is currently {data['main']['temp']} degrees Celsius with {data['weather'][0]['description']}."
-        audio_base64 = text_to_speech_base64(weather_text)
-        data['audio_base64'] = audio_base64
-        return data
-    else:
-        st.error("Failed to retrieve weather data.")
+    try:
+        url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OPENWEATHERMAP_API_KEY}&units=metric"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            weather_text = f"The weather in {data['name']} is currently {data['main']['temp']} degrees Celsius with {data['weather'][0]['description']}."
+            audio_base64 = text_to_speech_base64(weather_text)
+            data['audio_base64'] = audio_base64
+            return data
+        else:
+            st.error("Failed to retrieve weather data.")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching weather data: {str(e)}")
         return None
 
 # Function to create map HTML
@@ -243,73 +270,81 @@ def create_map_html(user_location, place_details_list, weather_data):
                 }});
                 var places = {json.dumps(place_details_list)};
                 places.forEach(function(place) {{
-                    var placeLocation = new google.maps.LatLng(place.result.geometry.location.lat, place.result.geometry.location.lng);
-                    var photos = place.result.photos ? place.result.photos.map(p => p.photo_reference) : [];
-                    var photoUrl = photos.length > 0 ? getPhotoUrl(photos[0]) : '';
-                    var rating = place.result.rating ? 'Rating: ' + place.result.rating : 'No Rating';
-                    var contact = place.result.formatted_phone_number ? 'Contact: ' + place.result.formatted_phone_number : 'No Contact Info';
-                    var reviews = place.result.reviews ? place.result.reviews.map(r => '<p><strong>' + r.author_name + ':</strong> ' + r.text + '</p>').join('') : 'No Reviews';
-                    var contentString = '<div><strong>' + place.result.name + '</strong><br>' +
-                        rating + '<br>' +
-                        'Address: ' + (place.result.formatted_address || 'N/A') + '<br>' +
-                        contact + '<br>' +
-                        'Reviews:<br>' + reviews + '<br>' +
-                        '<img src="' + photoUrl + '" width="200" height="150"></div>';
-                    
-                    var marker = new google.maps.Marker({{
-                        position: placeLocation,
-                        map: map,
-                        title: place.result.name,
-                        icon: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png'
-                    }});
-                    var infowindow = new google.maps.InfoWindow({{
-                        content: contentString
-                    }});
-                    marker.addListener('click', function() {{
-                        infowindow.open(map, marker);
-                    }});
+                    if (place.result && place.result.geometry) {{
+                        var placeLocation = new google.maps.LatLng(place.result.geometry.location.lat, place.result.geometry.location.lng);
+                        var photos = place.result.photos ? place.result.photos.map(p => p.photo_reference) : [];
+                        var photoUrl = photos.length > 0 ? getPhotoUrl(photos[0]) : '';
+                        var rating = place.result.rating ? 'Rating: ' + place.result.rating : 'No Rating';
+                        var contact = place.result.formatted_phone_number ? 'Contact: ' + place.result.formatted_phone_number : 'No Contact Info';
+                        var reviews = place.result.reviews ? place.result.reviews.map(r => '<p><strong>' + r.author_name + ':</strong> ' + r.text + '</p>').join('') : 'No Reviews';
+                        var contentString = '<div><strong>' + place.result.name + '</strong><br>' +
+                            rating + '<br>' +
+                            'Address: ' + (place.result.formatted_address || 'N/A') + '<br>' +
+                            contact + '<br>' +
+                            'Reviews:<br>' + reviews + '<br>' +
+                            '<img src="' + photoUrl + '" width="200" height="150"></div>';
+                        
+                        var marker = new google.maps.Marker({{
+                            position: placeLocation,
+                            map: map,
+                            title: place.result.name,
+                            icon: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png'
+                        }});
+                        var infowindow = new google.maps.InfoWindow({{
+                            content: contentString
+                        }});
+                        marker.addListener('click', function() {{
+                            infowindow.open(map, marker);
+                        }});
+                    }}
                 }});
-                // Add weather info
-                var weatherIcon = '{weather_data["weather"][0]["icon"]}';
-                var weatherIconUrl = 'http://openweathermap.org/img/w/' + weatherIcon + '.png';
-                var weatherTemp = '{weather_data["main"]["temp"]}°C';
-                var weatherDesc = '{weather_data["weather"][0]["description"]}';
-                var weatherTempMax = '{weather_data["main"]["temp_max"]}°C';
-                var weatherTempMin = '{weather_data["main"]["temp_min"]}°C';
-                var weatherFeelsLike = '{weather_data["main"]["feels_like"]}°C';
-                var weatherClouds = '{weather_data["clouds"]["all"]}%';
-                var weatherWindSpeed = '{weather_data["wind"]["speed"]} m/s';
-                var weatherHumidity = '{weather_data["main"]["humidity"]}%';
-                var weatherAudioBase64 = '{weather_data["audio_base64"]}';
-               
-                var weatherContentString = '<div><img src="' + weatherIconUrl + '"><br>' +
-                    '<strong>Temperature:</strong> ' + weatherTemp + '<br>' +
-                    '<strong>Description:</strong> ' + weatherDesc + '</div>'+
-                    '<strong>Max Temperature:</strong> ' + weatherTempMax + '<br>' +
-                    '<strong>Min Temperature:</strong> ' + weatherTempMin + '<br>' +
-                    '<strong>Feels Like:</strong> ' + weatherFeelsLike + '<br>' +
-                    '<strong>Cloud Cover:</strong> ' + weatherClouds + '<br>' +
-                    '<strong>Wind Speed:</strong> ' + weatherWindSpeed + '<br>' +
-                    '<strong>Humidity:</strong> ' + weatherHumidity + '<br>' +
-                    '<audio id="weatherAudio" style="display:none;"><source src="data:audio/mp3;base64,' + weatherAudioBase64 + '" type="audio/mp3"></audio>';
-                    
-                var weatherInfoWindow = new google.maps.InfoWindow({{
-                    content: weatherContentString,
-                    position: userLocation
-                }});
+                
+                // Add weather info if available
+                if ({json.dumps(weather_data is not None)}) {{
+                    var weatherData = {json.dumps(weather_data or {})};
+                    if (weatherData.weather && weatherData.weather[0]) {{
+                        var weatherIcon = weatherData.weather[0].icon;
+                        var weatherIconUrl = 'http://openweathermap.org/img/w/' + weatherIcon + '.png';
+                        var weatherTemp = weatherData.main.temp + '°C';
+                        var weatherDesc = weatherData.weather[0].description;
+                        var weatherTempMax = weatherData.main.temp_max + '°C';
+                        var weatherTempMin = weatherData.main.temp_min + '°C';
+                        var weatherFeelsLike = weatherData.main.feels_like + '°C';
+                        var weatherClouds = weatherData.clouds.all + '%';
+                        var weatherWindSpeed = weatherData.wind.speed + ' m/s';
+                        var weatherHumidity = weatherData.main.humidity + '%';
+                        var weatherAudioBase64 = weatherData.audio_base64 || '';
+                       
+                        var weatherContentString = '<div><img src="' + weatherIconUrl + '"><br>' +
+                            '<strong>Temperature:</strong> ' + weatherTemp + '<br>' +
+                            '<strong>Description:</strong> ' + weatherDesc + '</div>'+
+                            '<strong>Max Temperature:</strong> ' + weatherTempMax + '<br>' +
+                            '<strong>Min Temperature:</strong> ' + weatherTempMin + '<br>' +
+                            '<strong>Feels Like:</strong> ' + weatherFeelsLike + '<br>' +
+                            '<strong>Cloud Cover:</strong> ' + weatherClouds + '<br>' +
+                            '<strong>Wind Speed:</strong> ' + weatherWindSpeed + '<br>' +
+                            '<strong>Humidity:</strong> ' + weatherHumidity + '<br>' +
+                            '<audio id="weatherAudio" style="display:none;"><source src="data:audio/mp3;base64,' + weatherAudioBase64 + '" type="audio/mp3"></audio>';
+                            
+                        var weatherInfoWindow = new google.maps.InfoWindow({{
+                            content: weatherContentString,
+                            position: userLocation
+                        }});
 
-                var weatherMarker = new google.maps.Marker({{
-                    position: userLocation,
-                    map: map,
-                    icon: weatherIconUrl,
-                    title: 'Weather Information'
-                }});
+                        var weatherMarker = new google.maps.Marker({{
+                            position: userLocation,
+                            map: map,
+                            icon: weatherIconUrl,
+                            title: 'Weather Information'
+                        }});
 
-                weatherMarker.addListener('click', function() {{
-                    weatherInfoWindow.open(map, weatherMarker);
-                    var audio = document.getElementById('weatherAudio');
-                    audio.play();
-                }});
+                        weatherMarker.addListener('click', function() {{
+                            weatherInfoWindow.open(map, weatherMarker);
+                            var audio = document.getElementById('weatherAudio');
+                            if (audio) audio.play();
+                        }});
+                    }}
+                }}
             }}
 
             function getPhotoUrl(photoReference) {{
@@ -332,31 +367,37 @@ def generate_place_visit_data(place_details_list):
     date_range = [start_date + timedelta(days=x) for x in range((end_date - start_date).days + 1)]
     
     for place in place_details_list:
-        place_name = place['result']['name']
-        for date in date_range:
-            visits = random.randint(50, 500)
-            data.append({
-                'date': date,
-                'place': place_name,
-                'visits': visits
-            })
+        if 'result' in place and 'name' in place['result']:
+            place_name = place['result']['name']
+            for date in date_range:
+                visits = random.randint(50, 500)
+                data.append({
+                    'date': date,
+                    'place': place_name,
+                    'visits': visits
+                })
     
     return pd.DataFrame(data)
 
 # Function to create place visits chart
 def create_place_visits_chart(df):
+    if df.empty:
+        return go.Figure().add_annotation(text="No data available", xref="paper", yref="paper", x=0.5, y=0.5)
     fig = px.line(df, x='date', y='visits', color='place', title='Place Visits Over Time')
     fig.update_layout(xaxis_title='Date', yaxis_title='Number of Visits')
     return fig
 
 # Function to create weather trend chart
 def create_weather_trend_chart(weather_data):
+    if not weather_data:
+        return go.Figure().add_annotation(text="No weather data available", xref="paper", yref="paper", x=0.5, y=0.5)
+        
     dates = pd.date_range(end=datetime.now(), periods=7, freq='D')
     temperatures = [weather_data['main']['temp']] + [random.uniform(weather_data['main']['temp'] - 5, weather_data['main']['temp'] + 5) for _ in range(6)]
     df = pd.DataFrame({'date': dates, 'temperature': temperatures})
     
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['date'], y=df['temperature'], mode='lines+markers'))
+    fig.add_trace(go.Scatter(x=df['date'], y=df['temperature'], mode='lines+markers', name='Temperature'))
     fig.update_layout(title='Temperature Trend (Last 7 Days)', xaxis_title='Date', yaxis_title='Temperature (°C)')
     return fig
 
@@ -364,12 +405,16 @@ def create_weather_trend_chart(weather_data):
 def calculate_distances(user_location, place_details_list):
     distances = []
     for place in place_details_list:
-        place_location = place['result']['geometry']['location']
-        distance = gmaps.distance_matrix(user_location, (place_location['lat'], place_location['lng']))['rows'][0]['elements'][0]['distance']['value']
-        distances.append({
-            'name': place['result']['name'],
-            'distance': distance
-        })
+        if 'result' in place and 'geometry' in place['result'] and 'name' in place['result']:
+            try:
+                place_location = place['result']['geometry']['location']
+                distance = gmaps.distance_matrix(user_location, (place_location['lat'], place_location['lng']))['rows'][0]['elements'][0]['distance']['value']
+                distances.append({
+                    'name': place['result']['name'],
+                    'distance': distance
+                })
+            except Exception as e:
+                continue
     return sorted(distances, key=lambda x: x['distance'])[:10]  # Return top 10 nearest places
 
 # Function to display results
@@ -384,7 +429,7 @@ def display_results(location_name, place_types, user_location, target_language):
         "clothing": "clothing store",
         "supermarket": "supermarket",
         "college": "college",
-        "school": "school",
+        "school": "school",    
         "bus station": "bus station",
         "railway station": "train station",
         "metro station": "subway station",
@@ -410,8 +455,9 @@ def display_results(location_name, place_types, user_location, target_language):
     place_details_list = []
     for place in all_places:
         place_id = place.get('place_id')
-        place_details = fetch_place_details(place_id)
-        place_details_list.append(place_details)
+        if place_id:
+            place_details = fetch_place_details(place_id)
+            place_details_list.append(place_details)
 
     # Fetch weather data
     weather_data = get_weather_data(user_location[0], user_location[1])
@@ -436,42 +482,46 @@ def display_results(location_name, place_types, user_location, target_language):
     if all_places:
         for place in all_places:
             place_id = place.get('place_id')
-            place_details = fetch_place_details(place_id)
-            name = place_details.get('result', {}).get('name', 'N/A')
-            formatted_address = place_details.get('result', {}).get('formatted_address', 'Address not available')
-            rating = place_details.get('result', {}).get('rating', 'No Rating')
-            contact = place_details.get('result', {}).get('formatted_phone_number', 'Contact not available')
-            reviews = place_details.get('result', {}).get('reviews', [])
-            place_type = place_details.get('result', {}).get('types', ['N/A'])[0]
-            
-            st.markdown(f"""
-            <div class="place-card">
-                <h3 style='color: black;'>{translate_text(name, target_language)} ({translate_text(place_type, target_language)})</h3>
-                <p style='color: black;'>📍 {translate_text(formatted_address, target_language)}</p>
-                <p style='color: black;'>⭐ {translate_text('Rating', target_language)}: {rating}</p>
-                <p style='color: black;'>📞 {translate_text('Contact', target_language)}: {contact}</p>
-            """, unsafe_allow_html=True)
-            
-            if reviews:
-                review_summary = summarize_reviews(reviews, place_type)
-                st.markdown(f"<p style='color: black;'>📝 {translate_text('Review Summary', target_language)}: {translate_text(review_summary, target_language)}</p>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<p style='color: black;'>📝 {translate_text('Review Summary', target_language)}: {translate_text('No reviews available for this place.', target_language)}</p>", unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
+            if place_id:
+                place_details = fetch_place_details(place_id)
+                result = place_details.get('result', {})
+                name = result.get('name', 'N/A')
+                formatted_address = result.get('formatted_address', 'Address not available')
+                rating = result.get('rating', 'No Rating')
+                contact = result.get('formatted_phone_number', 'Contact not available')
+                reviews = result.get('reviews', [])
+                place_type = result.get('types', ['N/A'])[0] if result.get('types') else 'N/A'
+                
+                st.markdown(f"""
+                <div class="place-card">
+                    <h3 style='color: black;'>{translate_text(name, target_language)} ({translate_text(place_type, target_language)})</h3>
+                    <p style='color: black;'>📍 {translate_text(formatted_address, target_language)}</p>
+                    <p style='color: black;'>⭐ {translate_text('Rating', target_language)}: {rating}</p>
+                    <p style='color: black;'>📞 {translate_text('Contact', target_language)}: {contact}</p>
+                """, unsafe_allow_html=True)
+                
+                if reviews:
+                    review_summary = summarize_reviews(reviews, place_type)
+                    st.markdown(f"<p style='color: black;'>📝 {translate_text('Review Summary', target_language)}: {translate_text(review_summary, target_language)}</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<p style='color: black;'>📝 {translate_text('Review Summary', target_language)}: {translate_text('No reviews available for this place.', target_language)}</p>", unsafe_allow_html=True)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.warning(translate_text("No places found nearby.", target_language))
     
     # Display weather information
-    st.markdown(f"<h2 style='color: black;'>🌤️ Current Weather in {location_name}</h2>", unsafe_allow_html=True)
-    st.markdown(f"""
-    <div class="weather-card">
-        <p style='color: black;'>🌡️ {translate_text('Temperature', target_language)}: {weather_data['main']['temp']}°C</p>
-        <p style='color: black;'>📝 {translate_text('Description', target_language)}: {translate_text(weather_data['weather'][0]['description'], target_language)}</p>
-        <p style='color: black;'>💧 {translate_text('Humidity', target_language)}: {weather_data['main']['humidity']}%</p>
-        <p style='color: black;'>🌬️ {translate_text('Wind Speed', target_language)}: {weather_data['wind']['speed']} m/s</p>
-    </div>
-    """, unsafe_allow_html=True)
+    if weather_data:
+        st.markdown(f"<h2 style='color: black;'>🌤️ Current Weather in {location_name}</h2>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="weather-card">
+            <p style='color: black;'>🌡️ {translate_text('Temperature', target_language)}: {weather_data['main']['temp']}°C</p>
+            <p style='color: black;'>📝 {translate_text('Description', target_language)}: {translate_text(weather_data['weather'][0]['description'], target_language)}</p>
+            <p style='color: black;'>💧 {translate_text('Humidity', target_language)}: {weather_data['main']['humidity']}%</p>
+            <p style='color: black;'>🌬️ {translate_text('Wind Speed', target_language)}: {weather_data['wind']['speed']} m/s</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
     # Generate and display suggestions
     st.markdown(f"<h2 style='color: black;'>💡 You might also be interested in:</h2>", unsafe_allow_html=True)
     suggestions = suggest_related_places(place_types[0], location_name)
@@ -555,14 +605,71 @@ def local_trip_planner(location, duration):
         return None
 
 # Function to fetch currency exchange rates
+# Function to fetch currency exchange rates
 def fetch_currency_rates():
-    url = f"http://data.fixer.io/api/latest?access_key={FIXER_IO_API_KEY}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()['rates']
-    else:
-        st.error("Failed to fetch currency exchange rates.")
-        return None
+    try:
+        url = f"http://data.fixer.io/api/latest?access_key={FIXER_IO_API_KEY}"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Check if the response contains rates
+            if 'rates' in data and data['rates']:
+                return data['rates']
+            else:
+                # Return fallback rates silently
+                return {
+                    'USD': 1.0,
+                    'EUR': 0.85,
+                    'GBP': 0.73,
+                    'JPY': 110.0,
+                    'CAD': 1.25,
+                    'AUD': 1.35,
+                    'CHF': 0.92,
+                    'CNY': 6.45,
+                    'INR': 74.5,
+                    'KRW': 1180.0,
+                    'SGD': 1.35,
+                    'HKD': 7.75,
+                    'SEK': 8.65,
+                    'NOK': 8.85,
+                    'MXN': 20.15,
+                    'NZD': 1.42,
+                    'BRL': 5.25,
+                    'RUB': 75.0,
+                    'ZAR': 14.8,
+                    'TRY': 8.45
+                }
+        else:
+            # Return fallback rates silently
+            return {
+                'USD': 1.0,
+                'EUR': 0.85,
+                'GBP': 0.73,
+                'JPY': 110.0,
+                'CAD': 1.25,
+                'AUD': 1.35,
+                'CHF': 0.92,
+                'CNY': 6.45,
+                'INR': 74.5,
+                'KRW': 1180.0
+            }
+            
+    except:
+        # Return fallback rates silently for any error
+        return {
+            'USD': 1.0,
+            'EUR': 0.85,
+            'GBP': 0.73,
+            'JPY': 110.0,
+            'CAD': 1.25,
+            'AUD': 1.35,
+            'CHF': 0.92,
+            'CNY': 6.45,
+            'INR': 74.5,
+            'KRW': 1180.0
+        }
 
 # Function to convert currency
 def convert_currency(amount, from_currency, to_currency, rates):
